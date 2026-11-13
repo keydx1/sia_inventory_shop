@@ -1,0 +1,23 @@
+.git
+.env
+.env.*
+!.env.example
+public/uploads/*
+!public/uploads/.htaccess
+!public/uploads/.gitkeep
+backups/
+database/backups/
+*.log
+*.tmp
+*.bak
+tests/
+e2e/
+scripts/browser-qa-seed.php
+scripts/run-browser-qa.ps1
+docs/
+screenshots/
+raw screenshots/
+test-results/
+output/
+.playwright-cli/
+.github/

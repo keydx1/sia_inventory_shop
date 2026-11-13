@@ -1,0 +1,514 @@
+# MyShop response and side-effect contract inventory
+
+This inventory records current return and control-flow behavior. Future
+modules must preserve these contracts until callers are migrated deliberately.
+
+Phase 4G records the controlled dead-code retirement after the Phase 4F
+compatibility-facade classification. It removed only the unreferenced generated
+`docs/preview.png` artifact; all legacy function names and response contracts
+remain.
+
+Phase 4F records the final compatibility-facade classification, verifies the
+dependency direction of extracted modules, and establishes the evidence-based
+Phase 4G candidate inventory. No legacy function or compatibility wrapper is
+deleted in this phase.
+
+## Phase 5C list and volume contracts
+
+Interactive list and selector services return bounded arrays. Products and
+stock/order history use newest-first ordering with an ID tie-breaker;
+categories, customers, suppliers, and their selectors use name/id ordering.
+Search input is truncated and bound through prepared statements. The public
+pages retain their existing authentication, authorization, staff scoping,
+pagination, messages, redirects, and rendering contracts.
+
+`get_all_products()`, `get_stock_movements()`, `get_orders()`,
+`get_orders_for_staff()`, `get_categories()`, `get_customers()`, and
+`get_suppliers()` remain complete-array legacy compatibility loaders. Their
+retention is intentional and is not evidence that interactive pages are
+unbounded. `export_stream_entity()` remains complete by export row count but
+uses cursor-batched prepared queries and one-row fetches, so its in-memory
+working set remains bounded. Dashboard scalar/aggregate scans and fixed-window
+reports retain their existing return shapes.
+
+Batch 6A places active-session authentication, administrator authorization, and
+redirect implementations in `includes/auth.php` and `includes/http.php`. Batch
+5 placed bounded Supplier reads in `includes/people.php`; earlier batches placed
+Customer and Catalog reads in their focused modules. Batch 7A places bounded
+stock-movement count/page reads in `includes/inventory.php`; Batch 7B places the
+stock-movement history writer there while retaining the legacy wrapper. Batch
+7C places the atomic manual stock-adjustment transaction there while retaining
+the page's request, CSRF, authorization, and response responsibilities. Legacy
+names for moved functions remain available from `includes/functions.php` as compatibility
+wrappers, while unmoved legacy functions retain their original contracts.
+Batch 7D, 7E, and 7F place product creation, update, and deletion
+transactions in includes/products.php; the legacy product names remain
+delegation-only wrappers. Batch 8A places the order-creation transaction in
+includes/orders.php; the legacy create_order() name remains a delegation-only
+wrapper while the public POS page calls the focused service directly. Batch 8C
+places bounded and scoped order reads in the same module, and Batch 8D migrates
+the order-history, order-detail, and invoice pages to those focused services.
+Phase 3D places the inventory valuation read in `includes/dashboard.php`; the
+legacy name remains a delegation-only compatibility wrapper.
+Phase 3E places the top-selling product read in the same module; its legacy name
+also remains a delegation-only compatibility wrapper.
+Phase 3F places the category sales distribution read in the same module; its
+legacy name also remains a delegation-only compatibility wrapper.
+Phase 4B places category creation and update implementations in
+`includes/categories.php`; Phase 4C places category deletion there as well.
+Phase 4D places customer creation, update, and deletion implementations in
+`includes/customers.php`. Phase 4E places supplier creation, update, and
+deletion implementations in `includes/suppliers.php`. Their legacy names
+remain delegation-only wrappers.
+
+## Focused Dashboard statistics contract
+
+`dashboard_get_stats($conn, $staff_id = null)` accepts the database connection
+and optional staff scope explicitly and returns the fixed associative keys
+`total_products`, `total_orders`, `total_sales`, and `total_stock`. Product and
+stock totals remain global. With a null scope, order count and sale-only revenue
+are global; with a staff ID, those two values are scoped to that staff member.
+Purchases are excluded from `total_sales`, and numeric types remain integer for
+counts/stock and float for sales.
+
+The service catches database/query failures, logs only the existing server-side
+diagnostic, and returns the documented zero defaults without exposing database
+details. It does not read session or global state. `public/index.php` calls the
+focused service directly after its existing authentication and authorization
+scope decision. `get_dashboard_stats()` remains a delegation-only compatibility
+wrapper in `includes/functions.php` with its original signature and return
+contract.
+
+`dashboard_get_chart_data($conn, $days = 7, $staff_id = null)` preserves the
+same complete chronological date series and `{label, sales, purchases}` point
+shape. Days are normalized to 1–31, missing days remain numeric zeroes, sales
+and purchases remain separate float totals, and an optional staff ID scopes the
+Order aggregate. Prepared bindings, failure logging, statement cleanup, and
+closed-connection fallback are unchanged. `public/index.php` calls this
+focused service directly; `get_chart_data()` remains a delegation-only
+compatibility wrapper.
+
+`dashboard_get_inventory_valuation($conn)` executes the existing
+`SUM(stock * price)` Product aggregate and returns a float. It returns `0.0`
+when the Product result is empty, the query fails, or the connection is closed,
+and preserves the existing server-side error logging without exposing database
+details. It has no session or global dependency. `public/index.php` calls the
+focused service directly; `get_inventory_valuation()` remains a
+delegation-only compatibility wrapper in `includes/functions.php` with the
+original signature and return contract.
+
+`dashboard_get_top_selling_products($conn, $limit = 5, $staff_id = null)`
+preserves the sale-only `name`, `total_qty`, and `total_sales` result fields,
+quantity-descending grouping/order, optional staff scope, and limit normalization
+to 1–50. It returns `[]` for the existing prepare, bind, execute, or result
+failure branches and preserves the existing thrown mysqli failure when the
+connection is already closed. It does not read session or global state.
+`public/index.php` calls the focused service directly;
+`get_top_selling_products()` remains a delegation-only compatibility wrapper in
+`includes/functions.php`.
+
+`dashboard_get_category_sales_distribution($conn, $staff_id = null, $limit = 100)`
+preserves the sale-only category aggregate with `category_name` and
+`total_sales` fields, the existing OrderDetail/Order/Product/Category joins,
+the `Uncategorized` fallback, `total_sales DESC` ordering, optional staff scope,
+and prepared `staff_id`/`limit` bindings. The limit is normalized through the
+existing page-size helper to the allowed values 25, 50, or 100. Global failures
+(including a closed connection) return `[]` after the existing diagnostic is
+logged; scoped statement failures return `[]`, while a closed scoped connection
+preserves the existing uncaught mysqli failure. The service has no session or
+global dependency. `public/index.php` calls it directly and
+`get_category_sales_distribution()` remains a delegation-only compatibility
+wrapper in `includes/functions.php`.
+
+## Focused Category write contracts
+
+`categories_create($conn, $name, $description)` trims both text values and
+returns `false` for an empty name, duplicate name, failed prepared-statement
+operation, invalid/closed connection, or an insert whose affected-row count is
+not exactly one. It returns `true` only after the existing Category insert
+succeeds. `categories_update($conn, $id, $name, $description)` normalizes the
+ID and text, rejects non-positive IDs and empty names, rejects duplicate names,
+and rejects renaming the `General` category to another name. It preserves the
+existing prepared bindings and returns `true` after an executed update,
+including the current zero-row/missing-category behavior.
+
+The focused services do not read session or global state and do not own
+authorization, CSRF, audit, HTTP, or rendering behavior. The create/update
+services retain their existing non-transactional boundaries; `categories_delete()`
+owns the existing category-delete transaction. It casts the ID and returns
+`false` for non-positive IDs, missing categories, and the `General` category.
+After the existing category lookup, it starts the transaction, requires
+`General` to exist, deletes exactly one category, reassigns all product rows
+made `NULL` by the delete to General, and commits only after reassignment
+succeeds. Delete, reassignment, commit, closed-connection, and query failures
+return `false`; transactional failures roll back and preserve both category and
+product state. Existing prepared statements, affected-row checks, statement
+cleanup, error logging, and rollback diagnostics remain unchanged.
+
+`public/categories.php` keeps its existing authentication,
+CSRF-before-authorization ordering, admin gate, input validation, messages,
+and rendering while calling `categories_create()`, `categories_update()`, and
+`categories_delete()` directly. The legacy `create_category()`,
+`update_category()`, and `delete_category()` names remain delegation-only
+wrappers with their original signatures and boolean return contracts.
+
+## Focused Customer mutation contracts
+
+`customers_create($conn, $name, $phone, $email, $address)` preserves the
+existing sanitization helpers, rejects an empty name, uses prepared bindings,
+and returns `true` only when the insert affects exactly one row. Statement,
+connection, and SQL failures return `false` after the existing diagnostic is
+logged. `customers_update($conn, $id, $name, $phone, $email, $address)` rejects
+IDs `<= 1` and empty names, preserves the existing sanitization and bindings,
+and returns the result of successful statement execution without checking
+affected rows; therefore a missing ID retains the legacy `true` result when
+the update executes successfully. `customers_delete($conn, $id)` rejects IDs
+`<= 1` and returns `true` only when exactly one row is deleted.
+
+ID `1` is the protected Walk-in Customer. Customer deletion retains the
+existing foreign-key behavior for historical orders: `Order.customer_id` is
+set to `NULL` by the database rather than deleting the order. The focused
+services require an explicit connection, use prepared statements, close every
+statement on success and failure, do not require `functions.php`, and do not
+read session or global state. They preserve safe boolean failure results and
+existing error logging.
+
+`public/customers.php` calls `customers_create()`, `customers_update()`, and
+`customers_delete()` directly while retaining authentication, CSRF ordering,
+administrator authorization, input handling, audit metadata, messages,
+redirects, pagination, and rendering. The legacy `create_customer()`,
+`update_customer()`, and `delete_customer()` names remain delegation-only
+compatibility wrappers in `includes/functions.php`.
+
+## Focused Supplier mutation contracts
+
+`suppliers_create($conn, $name, $phone, $email, $address)` preserves the
+existing sanitization helpers, rejects an empty name, uses prepared bindings,
+and returns `true` only when the insert affects exactly one row. Statement,
+connection, and SQL failures return `false` after the existing diagnostic is
+logged. `suppliers_update($conn, $id, $name, $phone, $email, $address)` rejects
+IDs `<= 1` and empty names, preserves the existing sanitization and bindings,
+and returns the result of successful statement execution without checking
+affected rows; therefore a missing ID retains the legacy `true` result when
+the update executes successfully. `suppliers_delete($conn, $id)` rejects IDs
+`<= 1` and returns `true` only when exactly one row is deleted.
+
+ID `1` is the protected General Supplier. Supplier deletion retains the
+existing foreign-key behavior for historical purchase orders:
+`Order.supplier_id` is set to `NULL` by the database rather than deleting the
+order. The focused services require an explicit connection, use prepared
+statements, close every statement on success and failure, do not require
+`functions.php`, and do not read session or global state. They preserve safe
+boolean failure results and existing error logging.
+
+`public/suppliers.php` calls `suppliers_create()`, `suppliers_update()`, and
+`suppliers_delete()` directly while retaining authentication, CSRF ordering,
+administrator authorization, input normalization, validation rules, audit
+metadata, messages, redirects, pagination, and rendering. The legacy
+`create_supplier()`, `update_supplier()`, and `delete_supplier()` names remain
+delegation-only compatibility wrappers in `includes/functions.php`.
+
+## Focused Product mutation contracts
+
+The focused product services accept explicit database and actor dependencies
+and return bool:
+
+- products_create() returns true only after Product insertion, optional
+  initial stock-history logging, success-audit logging, and commit succeed.
+- products_update() preserves the image/no-image paths, no-op update
+  behavior, and non-zero stock-delta movement contract; it returns true
+  only after the transaction commits.
+- products_delete() preserves ID normalization, row locking, historical
+  OrderDetail/StockMovement protection, deletion affected-row validation,
+  nullable actor IDs, success-audit logging, and commit ordering; it returns
+  true only after commit.
+
+All three services roll back and clean up statements on database-operation
+failure, emit the existing failure audit attempt after rollback, use safe
+rollback diagnostics, and return false without exposing database details.
+They do not read session or global state. `public/products.php` calls these
+focused services directly after its existing request validation, CSRF, and
+authorization gates. includes/functions.php keeps create_product(),
+update_product(), and delete_product() as delegation-only wrappers with their
+original signatures and return contracts for remaining callers. The page
+continues to own upload request dispatch, generic messages, HTTP responses, and
+rendering; the focused Uploads module owns filesystem validation, storage, and
+cleanup.
+
+## Focused Uploads contracts
+
+`uploads_handle_image($file)` accepts the request upload structure explicitly
+and returns `false` for upload errors, non-uploaded files, invalid or mismatched
+MIME/content, invalid image structure, oversized files, invalid dimensions or
+pixel counts, unsafe destinations, or storage failure. On success it returns a
+relative `uploads/<32-lowercase-hex>.<jpg|jpeg|png|gif>` path. It preserves the
+5 MiB file limit, 4096-pixel width/height limits, 16-megapixel limit, finfo and
+`getimagesize()` checks, random filename generation, and canonical
+`public/uploads` boundary.
+
+`uploads_delete_newly_uploaded_image($relative_path)` returns `true` for a
+missing safe generated path or a successful deletion, and `false` for invalid
+path shapes, traversal, absolute paths, symlinks/outside-root paths, or unlink
+failure. It performs no database or session work. `public/products.php` calls
+these focused functions directly and retains the existing authorization, CSRF,
+product-service, cleanup-decision, and user-facing response behavior.
+
+The legacy `handle_image_upload()` and `delete_newly_uploaded_image()` names in
+`includes/functions.php` are delegation-only wrappers with their original
+signatures and return contracts.
+
+## Focused Order creation contract
+
+`orders_create()` accepts the database connection, explicit staff ID, normalized
+order items, order type, and customer/supplier ID explicitly. The observed
+success contract is the created order ID, not a boolean: it returns `int` only
+after the transaction commits and returns `false` for validation,
+authorization, stock, audit, transaction, or database failures. This preserves
+the existing `public/orders.php` success message and completed-order state.
+
+The service preserves duplicate-item aggregation, integer and money bounds,
+sale/purchase role and party validation, product row locks, Product price
+authority, Order/OrderDetail writes, stock updates, exact movement reasons,
+success/failure audit metadata, statement cleanup, commit order, rollback, and
+safe rollback diagnostics. It uses `inventory_log_stock_movement()` directly
+and has no session or global dependency. `create_order()` remains a thin
+compatibility wrapper with its original signature and order-ID-or-false return
+contract; `public/orders.php` calls `orders_create()` directly while continuing
+to own request parsing, CSRF, page-level authorization, generic messages, and
+rendering.
+
+## Focused Order read contracts
+
+The focused read services accept the database connection and optional staff
+scope explicitly. They preserve prepared statements, current result fields and
+aliases, staff ownership filtering, all/sale/purchase filters, deterministic
+pagination ordering, and the existing failure defaults:
+
+- `orders_count()` returns an integer count and `0` for invalid staff scope or
+  database failure.
+- `orders_get_page()` returns a bounded array and `[]` for invalid staff scope
+  or database failure.
+- `orders_get_summary()` returns `total_orders`, `total_sales_amount`,
+  `total_purchases_amount`, `sales_count`, and `purchases_count`, using numeric
+  zero defaults on invalid scope or failure.
+- `orders_get_by_id()` returns one order array, or `null` for invalid, missing,
+  unauthorized, or failed lookup.
+- `orders_get_details()` returns detail rows, or `[]` for invalid, missing,
+  unauthorized, or failed lookup.
+
+`count_orders()`, `get_orders_page()`, `get_order_summary()`,
+`get_order_by_id()`, and `get_order_details()` remain delegation-only wrappers
+with their existing signatures for remaining callers. The order-history,
+order-detail, and invoice pages now call the focused services directly.
+`get_orders()` and `get_orders_for_staff()` remain legacy unbounded loaders.
+
+## Array-returning functions
+
+An empty array may mean “no rows” or “database failure” for legacy functions;
+callers must not assume the distinction is currently available.
+
+### Catalog and inventory
+
+- `get_all_products()` — complete product array; legacy unbounded query.
+- `get_pos_products()` — bounded product array.
+- `get_stock_movements()` — complete movement array; legacy unbounded query.
+- `inventory_get_stock_movements_page()` / `get_stock_movements_page()` — bounded movement page.
+- `inventory_get_low_stock_products()` / `get_low_stock_products()` — bounded
+  low-stock array containing the existing `Product` fields plus the
+  `category_name` alias; the legacy name is a compatibility wrapper.
+- `get_products_page()` — bounded product page.
+- `get_categories()` — complete legacy category array with product counts.
+- `get_categories_page()` — bounded category page with product counts.
+- `get_customers()` — complete legacy customer array.
+- `get_customers_page()` — bounded customer page.
+- `get_customers_for_selector()` — bounded customer selector array.
+- `get_suppliers()` — complete legacy supplier array.
+- `get_suppliers_page()` — bounded supplier page.
+- `get_suppliers_for_selector()` — bounded supplier selector array.
+- Selector functions — bounded arrays.
+
+### Orders and reporting
+
+- `get_orders()` — complete order array; legacy unbounded query.
+- `get_orders_for_staff()` — scoped order array.
+- `get_orders_page()` — bounded order page.
+- `get_order_details()` — order-detail array; unauthorized or failure cases
+  return an empty array.
+- `get_order_summary()` — summary associative array with numeric defaults on
+  failure.
+- `dashboard_get_stats()` / `get_dashboard_stats()` — fixed dashboard KPI
+  array with zero defaults on query failure; the legacy name is a compatibility
+  wrapper.
+- `dashboard_get_chart_data()` / `get_chart_data()` — complete padded chart
+  array with zero values on failure; the legacy name is a compatibility wrapper.
+- `dashboard_get_inventory_valuation()` / `get_inventory_valuation()` — float
+  Product valuation, with `0.0` on empty results or database failure; the legacy
+  name is a compatibility wrapper.
+- `dashboard_get_top_selling_products()` / `get_top_selling_products()` —
+  bounded sale-only report rows; the legacy name is a compatibility wrapper.
+- `dashboard_get_category_sales_distribution()` /
+  `get_category_sales_distribution()` — bounded sale-only category report
+  rows with the existing `Uncategorized` fallback and allowed page sizes; the
+  legacy name is a compatibility wrapper.
+
+### Staff and audit
+
+- `get_staff_members()` — bounded staff array.
+- `get_audit_logs_page()` — bounded audit array.
+- `get_backup_table_allowlist()` and `export_report_definitions()` — static
+  configuration arrays.
+
+## Null-returning functions
+
+- `get_product_by_id()` — `null` for invalid IDs, missing records, or database
+  failure.
+- `get_pos_product_by_barcode()` — `null` for empty/missing barcode or failure.
+- `get_category_by_id()` — `null` for missing or failed lookup.
+- `get_customer_by_id()` — `null` for missing or failed lookup.
+- `get_supplier_by_id()` — `null` for missing or failed lookup.
+- `get_order_by_id()` — `null` for missing, unauthorized, or failed lookup.
+- `get_authenticated_staff_id()` — `null` when no valid session identity is
+  available.
+- `quote_backup_table()` — `null` for a table outside the allow-list.
+- `get_asset_integrity()` — `null` for local or unsupported assets.
+
+## False-returning functions
+
+False is used for validation failures, authorization failures, mutation
+failures, and some infrastructure failures.
+
+- `password_meets_policy()` and normalization/validation helpers where input
+  is invalid.
+- `get_login_source_ip()` when the peer address is unavailable or invalid.
+- `login_rate_limit_*()` mutation/check helpers on infrastructure failure.
+- `auth_verify_login(..., false)`, exposed through `verify_login(false)`, when
+  the current session is not authenticated or no longer represents an active
+  allowed staff record.
+- `products_create()`, `products_update()`, and `products_delete()` return
+  `false` on rejected or failed mutations; the legacy
+  `create_product()`, `update_product()`, and `delete_product()` wrappers
+  preserve the same boolean contract.
+- `inventory_log_stock_movement()` / `log_stock_movement()` on rejected or failed history writes.
+- `inventory_adjust_stock()` on invalid service arguments or any failed lock,
+  stock validation, guarded update, movement, audit, commit, or database
+  operation; database-operation failures roll back before the failure audit is attempted.
+- `orders_create()` / `create_order()` on any validation, authorization,
+  transaction, stock, audit, or database failure; both preserve `false` on
+  failure, while success returns the created order ID.
+- Staff, category, customer, and supplier mutation functions on rejected or
+  failed mutations.
+- `uploads_handle_image()` and `uploads_delete_newly_uploaded_image()` on invalid input,
+  unsafe paths, failed validation, or filesystem failure.
+- `audit_log()` and related helpers when an audit write cannot be completed.
+
+## Zero-returning functions
+
+Count and numeric functions use zero for empty results and often also for
+database failure:
+
+- `count_products()`
+- `count_categories()`
+- `inventory_count_stock_movements()` / `count_stock_movements()`
+- `count_orders()`
+- `count_customers()`
+- `count_suppliers()`
+- `count_audit_logs()`
+
+This is a known compatibility contract. It should not be changed while
+extracting modules unless callers are migrated and tested together.
+
+## Default-value returns
+
+- `dashboard_get_stats()` and its `get_dashboard_stats()` compatibility wrapper
+  return zeroed KPI values when one or more queries fail.
+- `dashboard_get_chart_data()` and its `get_chart_data()` compatibility wrapper
+  return a complete date range padded with zero values when the query fails.
+- `dashboard_get_inventory_valuation()` and its `get_inventory_valuation()`
+  compatibility wrapper return `0.0` when the valuation result is empty or the
+  database operation fails.
+- `dashboard_get_top_selling_products()` and its `get_top_selling_products()`
+  compatibility wrapper return `[]` for explicit statement failures; a closed
+  connection preserves the existing thrown mysqli failure.
+- `dashboard_get_category_sales_distribution()` and its
+  `get_category_sales_distribution()` compatibility wrapper return `[]` for
+  global query failures and global closed-connection failures. Scoped explicit
+  statement failures return `[]`; a closed scoped connection preserves the
+  existing thrown mysqli failure.
+- `inventory_get_low_stock_products()` and its `get_low_stock_products()`
+  compatibility wrapper return `[]` for query failure and closed-connection
+  failure after the existing server-side diagnostic is logged.
+- `get_order_summary()` returns default numeric summary fields on failure.
+- Paginated readers return empty arrays when the query fails.
+
+These defaults are user-facing behavior and must not silently change during a
+refactor.
+
+## Functions that throw
+
+The focused streaming/operational modules use exceptions as internal failure
+signals:
+
+- `includes/export.php`: binding, result binding, and output-stream failures
+  may throw `RuntimeException`; `export_csv_fail()` converts failures to a
+  generic HTTP response where appropriate.
+- `includes/backup.php`: invalid output/table configuration, query/stream
+  failures, and transaction failures may throw `RuntimeException`; the caller
+  logs safely and emits a generic failure response.
+- `scripts/production-preflight.php`, supply-chain, release-integrity, and
+  scanner helpers throw or return CLI failures according to their script
+  contracts.
+
+Most legacy functions in `includes/functions.php` catch database exceptions and
+convert them to the return values listed above.
+
+## Redirecting or terminating functions
+
+- `http_redirect()`, exposed through `redirect()`, sends a `Location` header and
+  terminates execution.
+- `auth_verify_login()`, exposed through `verify_login()`, may redirect when
+  called with its default argument.
+- `auth_require_admin()`, exposed through `require_admin()`, sends the current
+  authorization failure response and may terminate the request.
+- `config/db.php` terminates on unavailable required configuration or database
+  connection. Readiness mode returns HTTP 503 JSON with the exact generic body
+  `{"status":"not_ready","check":"database"}`.
+- `export_csv_fail()` terminates the export response with a generic error.
+- Backup request helpers terminate before or after streaming depending on the
+  point of failure.
+
+## Audit-event writers
+
+Audit writes occur through:
+
+- `audit_log()`
+- `audit_log_current_actor()`
+- `audit_log_denied()`
+- Page-level calls in login, product, stock, order, settings, backup, and
+  authorization-denial paths.
+
+Audit metadata is sanitized in `includes/audit.php` and must not gain access to
+passwords, cookies, CSRF tokens, request bodies, or database credentials.
+
+## Session-mutating functions
+
+- `start_secure_session()` initializes/refreshes idle-session state.
+- `generate_csrf_token()` creates the session CSRF token.
+- `verify_csrf_token()` reads session CSRF state.
+- `destroy_current_session()` clears session data and expires the cookie.
+- `auth_verify_login()`, exposed through `verify_login()`, writes authenticated
+  staff identity, role, last activity, and the current staff global record.
+- `public/login.php` writes login session fields directly after successful
+  authentication.
+- `public/settings.php` updates `$_SESSION['full_name']` after a profile update.
+
+## Side-effect inventory
+
+| Side effect | Current owner |
+|---|---|
+| HTTP headers | Security helpers, redirect/auth helpers, export, backup, endpoints |
+| Process termination | Database failure closure, redirect, admin/auth failures, export/backup failures |
+| Session writes | `security.php`, `auth.php:auth_verify_login`, login/settings pages |
+| Database writes | Rate limiting, audit, catalog, inventory, orders, staff, categories, customers, suppliers |
+| Filesystem writes | `uploads_handle_image`, `uploads_delete_newly_uploaded_image`, backup/export output streams, test/runner temporary files |
+| Server logs | `log_application_error`, `error_log` calls, audit/operational logging |
+| Browser output | All public page templates, JSON endpoints, CSV and SQL stream endpoints |
